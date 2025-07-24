@@ -11,10 +11,7 @@ $LogKeep = 5
 $StartTime = Get-Date
 
 function Write-Log {
-  param(
-    [string]$Message,
-    [ValidateSet('INFO','WARN','ERROR','DEBUG')]$Level = 'INFO'
-  )
+  param([string]$Message, [ValidateSet('INFO','WARN','ERROR','DEBUG')]$Level = 'INFO')
   $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
   $line = "[$ts][$Level] $Message"
   switch ($Level) {
@@ -31,7 +28,7 @@ function Rotate-Log {
     if ((Get-Item $LogPath).Length / 1KB -gt $LogMaxKB) {
       for ($i = $LogKeep - 1; $i -ge 0; $i--) {
         $old = "$LogPath.$i"
-        $new = "$LogPath." + ($i + 1)
+        $new = "$LogPath." + ($i + 1)"
         if (Test-Path $old) { Rename-Item $old $new -Force }
       }
       Rename-Item $LogPath "$LogPath.1" -Force
@@ -51,28 +48,37 @@ function Test-DigitalSignature {
 }
 
 Rotate-Log
+
+try {
+  if (Test-Path $ARLog) {
+    Remove-Item -Path $ARLog -Force -ErrorAction Stop
+  }
+  New-Item -Path $ARLog -ItemType File -Force | Out-Null
+  Write-Log "Active response log cleared for fresh run."
+} catch {
+  Write-Log "Failed to clear ${ARLog}: $($_.Exception.Message)" 'WARN'
+}
+
 Write-Log "=== SCRIPT START : Detect Unsigned Processes (AppData/Temp/Public) ==="
 
 try {
   $Processes = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and (Test-Path $_.ExecutablePath) }
-
   $Items = @()
+
   foreach ($proc in $Processes) {
     $exe = $proc.ExecutablePath
     if ($exe -match 'Users\\[^\\]+\\AppData' -or $exe -match 'Users\\[^\\]+\\AppData\\Local\\Temp' -or $exe -match 'Users\\Public') {
       $flaggedReasons = @()
-
       if (-not (Test-DigitalSignature -FilePath $exe)) {
         $flaggedReasons += "Unsigned binary"
         Write-Log "Flagged: PID $($proc.ProcessId) ($exe) -> Unsigned" "WARN"
       }
-
       if ($flaggedReasons.Count -gt 0) {
         $Items += [PSCustomObject]@{
-          process_id     = $proc.ProcessId
-          name           = $proc.Name
-          executable     = $exe
-          command_line   = $proc.CommandLine
+          process_id = $proc.ProcessId
+          name = $proc.Name
+          executable = $exe
+          command_line = $proc.CommandLine
           flagged_reasons = $flaggedReasons
         }
       }
@@ -82,26 +88,25 @@ try {
   $timestamp = (Get-Date).ToString('o')
 
   $FullReport = [PSCustomObject]@{
-    host          = $HostName
-    timestamp     = $timestamp
-    action        = "detect_unsigned_processes"
-    item_count    = $Items.Count
-    processes     = $Items
+    host = $HostName
+    timestamp = $timestamp
+    action = "detect_unsigned_processes"
+    item_count = $Items.Count
+    processes = $Items
   }
 
   $FlaggedReport = [PSCustomObject]@{
-    host             = $HostName
-    timestamp        = $timestamp
-    action           = "detect_unsigned_processes_flagged"
-    flagged_count    = $Items.Count
+    host = $HostName
+    timestamp = $timestamp
+    action = "detect_unsigned_processes_flagged"
+    flagged_count = $Items.Count
     flagged_processes = $Items
   }
 
   $FullReport   | ConvertTo-Json -Depth 5 -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
-  $FlaggedReport | ConvertTo-Json -Depth 5 -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
+  $FlaggedReport| ConvertTo-Json -Depth 5 -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
 
-  Write-Log "JSON reports (full + flagged) appended to $ARLog"
-
+  Write-Log "JSON reports (full + flagged) written to $ARLog"
   Write-Host "`n=== Unsigned Process Scan Report ==="
   Write-Host "Host: $HostName"
   Write-Host "Unsigned Processes Found: $($Items.Count)`n"
@@ -110,20 +115,17 @@ try {
   } else {
     Write-Host "No unsigned binaries running from AppData/Temp/Public."
   }
-
-}
-catch {
+} catch {
   Write-Log $_.Exception.Message "ERROR"
   $ErrorObj = [PSCustomObject]@{
-    host       = $HostName
-    timestamp  = (Get-Date).ToString('o')
-    action     = "detect_unsigned_processes"
-    status     = "error"
-    error      = $_.Exception.Message
+    host = $HostName
+    timestamp = (Get-Date).ToString('o')
+    action = "detect_unsigned_processes"
+    status = "error"
+    error = $_.Exception.Message
   }
   $ErrorObj | ConvertTo-Json -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
-}
-finally {
+} finally {
   $duration = [int]((Get-Date) - $StartTime).TotalSeconds
   Write-Log "=== SCRIPT END : duration ${duration}s ==="
 }
