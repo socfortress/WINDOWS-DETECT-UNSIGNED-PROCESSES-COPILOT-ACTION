@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$LogPath = "$env:TEMP\Detect-Unsigned-Processes.log",
-  [string]$ARLog = 'C:\Program Files (x86)\ossec-agent\active-response\active-responses.log'
+  [string]$ARLog   = 'C:\Program Files (x86)\ossec-agent\active-response\active-responses.log'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,7 +28,7 @@ function Rotate-Log {
     if ((Get-Item $LogPath).Length / 1KB -gt $LogMaxKB) {
       for ($i = $LogKeep - 1; $i -ge 0; $i--) {
         $old = "$LogPath.$i"
-        $new = "$LogPath." + ($i + 1)"
+        $new = "$LogPath." + ($i + 1)
         if (Test-Path $old) { Rename-Item $old $new -Force }
       }
       Rename-Item $LogPath "$LogPath.1" -Force
@@ -48,17 +48,6 @@ function Test-DigitalSignature {
 }
 
 Rotate-Log
-
-try {
-  if (Test-Path $ARLog) {
-    Remove-Item -Path $ARLog -Force -ErrorAction Stop
-  }
-  New-Item -Path $ARLog -ItemType File -Force | Out-Null
-  Write-Log "Active response log cleared for fresh run."
-} catch {
-  Write-Log "Failed to clear ${ARLog}: $($_.Exception.Message)" 'WARN'
-}
-
 Write-Log "=== SCRIPT START : Detect Unsigned Processes (AppData/Temp/Public) ==="
 
 try {
@@ -75,10 +64,10 @@ try {
       }
       if ($flaggedReasons.Count -gt 0) {
         $Items += [PSCustomObject]@{
-          process_id = $proc.ProcessId
-          name = $proc.Name
-          executable = $exe
-          command_line = $proc.CommandLine
+          process_id      = $proc.ProcessId
+          name            = $proc.Name
+          executable      = $exe
+          command_line    = $proc.CommandLine
           flagged_reasons = $flaggedReasons
         }
       }
@@ -87,26 +76,23 @@ try {
 
   $timestamp = (Get-Date).ToString('o')
 
-  $FullReport = [PSCustomObject]@{
-    host = $HostName
-    timestamp = $timestamp
-    action = "detect_unsigned_processes"
-    item_count = $Items.Count
-    processes = $Items
+  $Report = [PSCustomObject]@{
+    host               = $HostName
+    timestamp          = $timestamp
+    action             = "detect_unsigned_processes"
+    total_flagged      = $Items.Count
+    flagged_processes  = $Items
   }
-
-  $FlaggedReport = [PSCustomObject]@{
-    host = $HostName
-    timestamp = $timestamp
-    action = "detect_unsigned_processes_flagged"
-    flagged_count = $Items.Count
-    flagged_processes = $Items
+  $json = $Report | ConvertTo-Json -Depth 5 -Compress
+  $tempFile = "$env:TEMP\arlog.tmp"
+  Set-Content -Path $tempFile -Value $json -Encoding ascii -Force
+  try {
+    Move-Item -Path $tempFile -Destination $ARLog -Force
+    Write-Log "Log file replaced at $ARLog"
+  } catch {
+    Move-Item -Path $tempFile -Destination "$ARLog.new" -Force
+    Write-Log "Log locked, wrote results to $ARLog.new" 'WARN'
   }
-
-  $FullReport   | ConvertTo-Json -Depth 5 -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
-  $FlaggedReport| ConvertTo-Json -Depth 5 -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
-
-  Write-Log "JSON reports (full + flagged) written to $ARLog"
   Write-Host "`n=== Unsigned Process Scan Report ==="
   Write-Host "Host: $HostName"
   Write-Host "Unsigned Processes Found: $($Items.Count)`n"
@@ -118,13 +104,20 @@ try {
 } catch {
   Write-Log $_.Exception.Message "ERROR"
   $ErrorObj = [PSCustomObject]@{
-    host = $HostName
+    host      = $HostName
     timestamp = (Get-Date).ToString('o')
-    action = "detect_unsigned_processes"
-    status = "error"
-    error = $_.Exception.Message
+    action    = "detect_unsigned_processes"
+    status    = "error"
+    error     = $_.Exception.Message
   }
-  $ErrorObj | ConvertTo-Json -Compress | Out-File -FilePath $ARLog -Append -Encoding ascii -Width 2000
+  $json = $ErrorObj | ConvertTo-Json -Compress
+  $tempFile = "$env:TEMP\arlog.tmp"
+  Set-Content -Path $tempFile -Value $json -Encoding ascii -Force
+  try {
+    Move-Item -Path $tempFile -Destination $ARLog -Force
+  } catch {
+    Move-Item -Path $tempFile -Destination "$ARLog.new" -Force
+  }
 } finally {
   $duration = [int]((Get-Date) - $StartTime).TotalSeconds
   Write-Log "=== SCRIPT END : duration ${duration}s ==="
