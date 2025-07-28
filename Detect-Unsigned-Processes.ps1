@@ -109,6 +109,7 @@ try {
     action    = "detect_unsigned_processes"
     status    = "error"
     error     = $_.Exception.Message
+    copilot_soar = $true
   }
   $json = $ErrorObj | ConvertTo-Json -Compress
   $tempFile = "$env:TEMP\arlog.tmp"
