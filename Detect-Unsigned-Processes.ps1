@@ -82,6 +82,7 @@ try {
     action             = "detect_unsigned_processes"
     total_flagged      = $Items.Count
     flagged_processes  = $Items
+    copilot_action = $true
   }
   $json = $Report | ConvertTo-Json -Depth 5 -Compress
   $tempFile = "$env:TEMP\arlog.tmp"
@@ -109,7 +110,7 @@ try {
     action    = "detect_unsigned_processes"
     status    = "error"
     error     = $_.Exception.Message
-    copilot_soar = $true
+    copilot_action = $true
   }
   $json = $ErrorObj | ConvertTo-Json -Compress
   $tempFile = "$env:TEMP\arlog.tmp"
@@ -123,3 +124,4 @@ try {
   $duration = [int]((Get-Date) - $StartTime).TotalSeconds
   Write-Log "=== SCRIPT END : duration ${duration}s ==="
 }
+
