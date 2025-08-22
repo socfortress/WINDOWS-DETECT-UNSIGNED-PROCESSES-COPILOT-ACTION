@@ -1,0 +1,26 @@
+{
+  "active_response_name": "WINDOWS-DETECT-UNSIGNED-PROCESSES-ACTIVERESPONSE",
+  "description": "Scans running processes and flags unsigned executables running from suspicious locations such as AppData, Temp, or Public folders. Reports process details including PID, name, executable path, and command line. Outputs NDJSON containing a summary and flagged processes, and writes atomically to the Active Response log with .new fallback.",
+  "technology": "Windows",
+  "icon": "windows",
+  "script_parameters": [
+    {
+      "name": "LogPath",
+      "type": "string",
+      "required": false,
+      "description": "Path to the rotating human-readable script log.",
+      "default": "%TEMP%/Detect-Unsigned-Processes.log"
+    },
+    {
+      "name": "ARLog",
+      "type": "string",
+      "required": false,
+      "description": "Active Response NDJSON output path (atomic overwrite; falls back to .new if locked).",
+      "default": "C:\\Program Files (x86)\\ossec-agent\\active-response\\active-responses.log"
+    }
+  ],
+  "repo_url": "https://github.com/socfortress/WINDOWS-DETECT-UNSIGNED-PROCESSES-ACTIVERESPONSE",
+  "script_name": "Detect-Unsigned-Processes.ps1",
+  "version": "1.0.0",
+  "last_updated": "2025-08-22T00:00:00Z"
+}
