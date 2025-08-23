@@ -1,5 +1,5 @@
 {
-  "copilot_action_name": "WINDOWS-DETECT-UNSIGNED-PROCESSES-ACTIVERESPONSE",
+  "copilot_action_name": "WINDOWS-DETECT-UNSIGNED-PROCESSES-COPILOT-ACTION",
   "description": "Scans running processes and flags unsigned executables running from suspicious locations such as AppData, Temp, or Public folders. Reports process details including PID, name, executable path, and command line. Outputs NDJSON containing a summary and flagged processes, and writes atomically to the Active Response log with .new fallback.",
   "technology": "Windows",
   "icon": "windows",
