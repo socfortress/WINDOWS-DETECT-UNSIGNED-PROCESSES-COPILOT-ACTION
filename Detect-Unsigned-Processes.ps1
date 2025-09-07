@@ -35,14 +35,19 @@ function Rotate-Log {
   }
 }
 
-function NowZ { (Get-Date).ToString('yyyy-MM-dd HH:mm:sszzz') }
+function To-ISO8601 { param($dt)
+  if ($dt -and $dt -is [datetime] -and $dt.Year -gt 1900) { $dt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
+}
+
+function New-NdjsonLine { param([hashtable]$Data) ($Data | ConvertTo-Json -Compress -Depth 7) }
 
 function Write-NDJSONLines {
   param([string[]]$JsonLines,[string]$Path=$ARLog)
   $tmp = Join-Path $env:TEMP ("arlog_{0}.tmp" -f ([guid]::NewGuid().ToString("N")))
   $dir = Split-Path -Parent $Path
   if ($dir -and -not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
-  Set-Content -Path $tmp -Value ($JsonLines -join [Environment]::NewLine) -Encoding ascii -Force
+  $payload = ($JsonLines -join [Environment]::NewLine) + [Environment]::NewLine
+  Set-Content -Path $tmp -Value $payload -Encoding ascii -Force
   try { Move-Item -Path $tmp -Destination $Path -Force } catch { Move-Item -Path $tmp -Destination ($Path + '.new') -Force }
 }
 
@@ -60,20 +65,20 @@ function Test-DigitalSignatureSafe {
 }
 
 Rotate-Log
-Write-Log "=== SCRIPT START : Detect Unsigned Processes ==="
+Write-Log "=== SCRIPT START : Detect Unsigned Processes (host=$HostName) ==="
 
-$ts = NowZ
-$lines = @()
+$tsNow = To-ISO8601 (Get-Date)
 
 try {
   $rxAppData = [regex]'\\Users\\[^\\]+\\AppData(\\|$)'
   $rxTemp    = [regex]'\\Users\\[^\\]+\\AppData\\Local\\Temp(\\|$)'
   $rxPublic  = [regex]'\\Users\\Public(\\|$)'
+
   $procs = Get-CimInstance Win32_Process -ErrorAction Stop |
            Where-Object { $_.ExecutablePath -and (Test-Path -LiteralPath $_.ExecutablePath) }
 
-  $checkedFiles = @{}  
-  $findings = @()
+  $checkedFiles = @{}   
+  $findings     = @()
 
   foreach ($p in $procs) {
     $exe = $p.ExecutablePath
@@ -91,47 +96,65 @@ try {
         process      = $p.Name
         executable   = $exe
         command_line = $p.CommandLine
-        reasons      = @('Unsigned binary')
+        reasons      = @('unsigned_binary','user_writable_location')
       }
     }
   }
 
-  $lines += ([pscustomobject]@{
-    timestamp        = $ts
+  $lines = New-Object System.Collections.ArrayList
+
+  [void]$lines.Add( (New-NdjsonLine @{
+    timestamp        = $tsNow
     host             = $HostName
     action           = 'detect_unsigned_processes'
     copilot_action   = $true
-    type             = 'verify_source'
+    item             = 'verify_source'
+    description      = 'Processes enumerated via CIM Win32_Process; limited to user-writable locations'
     source_processes = 'Win32_Process (CIM)'
-    scanned_count    = $procs.Count
+    scanned_count    = ($procs | Measure-Object).Count
     unique_binaries  = $checkedFiles.Count
-  } | ConvertTo-Json -Compress -Depth 6)
+  }) )
 
   foreach ($f in $findings) {
-    $lines += ([pscustomobject]@{
-      timestamp      = $ts
+    [void]$lines.Add( (New-NdjsonLine @{
+      timestamp      = $tsNow
       host           = $HostName
       action         = 'detect_unsigned_processes'
       copilot_action = $true
-      type           = 'finding'
+      item           = 'finding'
+      description    = "Unsigned process '$($f.process)' (PID $($f.pid)) in user-writable path"
       pid            = $f.pid
       process        = $f.process
       executable     = $f.executable
       command_line   = $f.command_line
       reasons        = $f.reasons
-    } | ConvertTo-Json -Compress -Depth 6)
+    }) )
   }
 
-  $summary = [pscustomobject]@{
-    timestamp      = $ts
+  if ($findings.Count -eq 0) {
+    [void]$lines.Add( (New-NdjsonLine @{
+      timestamp      = $tsNow
+      host           = $HostName
+      action         = 'detect_unsigned_processes'
+      copilot_action = $true
+      item           = 'status'
+      status         = 'no_results'
+      description    = 'No unsigned binaries detected in AppData, Temp, or Public'
+    }) )
+  }
+
+  $summary = New-NdjsonLine @{
+    timestamp      = $tsNow
     host           = $HostName
     action         = 'detect_unsigned_processes'
     copilot_action = $true
-    type           = 'summary'
+    item           = 'summary'
+    description    = 'Run summary and counts'
     total_flagged  = $findings.Count
     duration_s     = [math]::Round(((Get-Date)-$runStart).TotalSeconds,1)
   }
-  $lines = @(( $summary | ConvertTo-Json -Compress -Depth 6 )) + $lines
+  $lines = ,$summary + $lines
+
   Write-NDJSONLines -JsonLines $lines -Path $ARLog
   Write-Log ("NDJSON written to {0} ({1} lines)" -f $ARLog,$lines.Count) 'INFO'
   Write-Host "`n=== Unsigned Process Scan Report ==="
@@ -145,15 +168,16 @@ try {
 }
 catch {
   Write-Log $_.Exception.Message 'ERROR'
-  $err = [pscustomobject]@{
-    timestamp      = NowZ
+  $err = New-NdjsonLine @{
+    timestamp      = To-ISO8601 (Get-Date)
     host           = $HostName
     action         = 'detect_unsigned_processes'
     copilot_action = $true
-    type           = 'error'
+    item           = 'error'
+    description    = 'Unhandled error'
     error          = $_.Exception.Message
   }
-  Write-NDJSONLines -JsonLines @(($err | ConvertTo-Json -Compress -Depth 6)) -Path $ARLog
+  Write-NDJSONLines -JsonLines @($err) -Path $ARLog
   Write-Log "Error NDJSON written" 'INFO'
 }
 finally {
